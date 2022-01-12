@@ -35,14 +35,17 @@ DEV_RollScreen::DEV_RollScreen(unsigned number, Pin MOTOR_A, Pin MOTOR_B, Pin SE
 }
 
 boolean DEV_RollScreen::update() {
-
     if (abs(position.current - position.target) > 1) {
-        position.target = position.current;
-        return false;
+        if ((position.target > position.current) !=
+            (target->getNewVal<int>() > target->getNewVal<int>())) {
+            position.target = position.current;
+            return false;
+        }
+        position.target = from_range(target->getNewVal<int>());
     }
-
-    position.target = from_range(target->getNewVal<int>());
-
+    else {
+        position.target = from_range(target->getNewVal<int>());
+    }
     return true;
 }
 
@@ -51,18 +54,31 @@ void DEV_RollScreen::loop() {
     float dt = (t - time) / 1000.0;
     time = t;
 
+    if (dt * 1000 > 100) log_d("overload #%d %f %d", number, dt * 1000);
+
     // Start moving
     if (!active && abs(position.current - position.target) > 1) {
         active = true;
         active_any++;
         log_d("active: %d", active_any);
         digitalWrite(SENSOR_ACTIVE, HIGH);
-        delay(1);
+        delay(20);
         encoder = read_encoder();
         last_edge_detected = millis();
         speed = 0;
         direction = position.target > position.current ? 1 : -1;
     }
+    // Reset origin
+    // else if (active && position.target == position.max) {
+    //     if (speed < 1.0) {
+    //         log_d("reset origin");
+    //         position.current = position.target;
+    //         active = false;
+    //         active_any--;
+    //         log_d("active: %d", active_any);
+    //         speed = 0;
+    //     }
+    // }
     // Stop moving
     else if (active && abs(position.current - position.target) <= 1) {
         active = false;
@@ -71,15 +87,15 @@ void DEV_RollScreen::loop() {
         speed = 0;
     }
 
-    if (active_any == 0 && millis() > last_edge_detected + 1000 ) {
+    if (active_any == 0 && millis() > last_edge_detected + 2000) {
         // log_d("sensor disabled");
         digitalWrite(SENSOR_ACTIVE, LOW);
     }
 
-    if (millis() - last_edge_detected > 500) speed = 0;
+    if (millis() - last_edge_detected > 1000) speed = 0;
 
 
-    if (read_encoder() != encoder && millis() < last_edge_detected + 500) {
+    if (read_encoder() != encoder && millis() < last_edge_detected + 1000) {
         position.current += direction;
         encoder = read_encoder();
         speed = SPEED_FILTER * speed + direction *
@@ -133,22 +149,21 @@ void DEV_RollScreen::loop() {
     //     ledcWrite(CHANNEL_B, 0);
     // }
 
-
+    int pos = to_range(position.current);
+    if (abs(position.current - position.target) <= 1)
+        pos = to_range(position.target);
 
     if (t - last_pushed > 1000 &&
-        current->getVal() != to_range(position.current)) {
-        int c = to_range(position.current);
-        if (abs(position.current - position.target) <= 1)
-            c = to_range(position.target);
-        current->setVal(c);
+        current->getVal() != pos) {
+        current->setVal(pos);
         int s = 2;
         if (target_speed > 0) s = 1;
         if (target_speed < 0) s = 0;
         state->setVal(s);
         last_pushed = t;
 
-        log_d("current: %d, target: %d, speed: %f, target speed: %f",
-              position.current, position.target, speed, target_speed);
+        log_d("#%d, current: %d, target: %d, speed: %f",
+              number, position.current, position.target, speed);
     }
 }
 
@@ -168,11 +183,12 @@ bool DEV_RollScreen::read_encoder() {
 
 int DEV_RollScreen::to_range(int pos) {
     if (position.max == position.min) return 0;
-    int range = (pos - position.min) * 100 / (position.max - position.min);
-    return constrain(range, 0, 100);
+    float range = (pos - position.min) * 100.0 / (position.max - position.min);
+    return constrain(round(range), 0, 100);
 }
 int DEV_RollScreen::from_range(int range) {
-    return position.min + (position.max - position.min) * (range / 100.0);
+    return
+        round(position.min + (position.max - position.min) * (range / 100.0));
 }
 
 void DEV_RollScreen::get_ROM() {
