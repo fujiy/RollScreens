@@ -1,6 +1,7 @@
 #include "RollScreen.h"
 
-unsigned DEV_RollScreen::active_any = false;
+unsigned DEV_RollScreen::active_any = 0;
+unsigned long DEV_RollScreen::last_active = 0;
 
 DEV_RollScreen::DEV_RollScreen(unsigned number, Pin MOTOR_A, Pin MOTOR_B, Pin SENSOR, Pin SENSOR_ACTIVE): Service::WindowCovering() {
     this->number        = number;
@@ -65,29 +66,37 @@ void DEV_RollScreen::loop() {
         delay(20);
         encoder = read_encoder();
         last_edge_detected = millis();
+        last_active = last_edge_detected;
         speed = 0;
         direction = position.target > position.current ? 1 : -1;
     }
-    // Reset origin
-    // else if (active && position.target == position.max) {
-    //     if (speed < 1.0) {
-    //         log_d("reset origin");
-    //         position.current = position.target;
-    //         active = false;
-    //         active_any--;
-    //         log_d("active: %d", active_any);
-    //         speed = 0;
-    //     }
-    // }
+    //Reset origin
+    else if (active && speed == 0 && direction > 0 && millis() - last_edge_detected > 600) {
+        log_d("reset origin");
+        position.current = position.target + 3;
+        active = false;
+        active_any--;
+        log_d("active: %d", active_any);
+    }
+    else if (active && position.target == position.max && direction > 0) {
+        if (speed == 0 && millis() - last_edge_detected  > 600) {
+            log_d("reset origin");
+            position.current = position.target + 3;
+            active = false;
+            active_any--;
+            log_d("active: %d", active_any);
+        }
+    }
     // Stop moving
     else if (active && abs(position.current - position.target) <= 1) {
+        direction = 0;
         active = false;
         active_any--;
         log_d("active: %d", active_any);
         speed = 0;
     }
 
-    if (active_any == 0 && millis() > last_edge_detected + 2000) {
+    if (active_any == 0 && millis() > last_active + 2000) {
         // log_d("sensor disabled");
         digitalWrite(SENSOR_ACTIVE, LOW);
     }
@@ -101,16 +110,17 @@ void DEV_RollScreen::loop() {
         speed = SPEED_FILTER * speed + direction *
             (1.0 - SPEED_FILTER) * 1000.0 / (millis() - last_edge_detected);
         last_edge_detected = millis();
+        last_active = last_edge_detected;
         put_ROM();
-        log_d("Screen #%d moved: %d", number, position.current);
+        log_d("Screen #%d moved: %d, speed: %f", number, position.current, speed);
     }
 
-    if (position.target > position.current + 1) {
+    if (direction > 0) {
         target_speed = SPEED;
         // log_d("current: %d, target: %d, speed: %f, target speed: %f",
         //       position.current, position.target, speed, target_speed);
     }
-    else if (position.target < position.current - 1) {
+    else if (direction < 0) {
         target_speed = - SPEED;
         // log_d("current: %d, target: %d, speed: %f, target speed: %f",
         //       position.current, position.target, speed, target_speed);

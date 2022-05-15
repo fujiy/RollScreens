@@ -27,6 +27,8 @@ private:
     /* unsigned CHANNEL_B; */
 
     static unsigned active_any;
+    static unsigned long last_active;
+    
     bool active = false;
 
     unsigned long time = 0;
@@ -65,4 +67,3 @@ private:
     void put_ROM();
 
 };
-
